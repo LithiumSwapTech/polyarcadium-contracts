@@ -1,0 +1,111 @@
+{
+	"compiler": {
+		"version": "0.8.0+commit.c7dfd78e"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "user",
+						"type": "address"
+					}
+				],
+				"name": "getReferrer",
+				"outputs": [
+					{
+						"internalType": "address",
+						"name": "",
+						"type": "address"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "user",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "referrer",
+						"type": "address"
+					}
+				],
+				"name": "recordReferral",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "referrer",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "commission",
+						"type": "uint256"
+					}
+				],
+				"name": "recordReferralCommission",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {
+				"getReferrer(address)": {
+					"details": "Get the referrer address that referred the user."
+				},
+				"recordReferral(address,address)": {
+					"details": "Record referral."
+				},
+				"recordReferralCommission(address,uint256)": {
+					"details": "Record referral commission."
+				}
+			},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/libs/IPepeReferral.sol": "IPepeReferral"
+		},
+		"evmVersion": "istanbul",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/libs/IPepeReferral.sol": {
+			"keccak256": "0x5bbf34932b575069b75b19b39cccffbf0cc3ae7744e356c9d1f8bf9bd60a614b",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://e13d1105e4ffb2894e653d0d80f61996d7233c586030e79d1e12cf99e40a187c",
+				"dweb:/ipfs/QmUVu4vHwCrpGiUGSbToQYz5prJc3F2xVzhu9s4TNKD2hu"
+			]
+		}
+	},
+	"version": 1
+}
