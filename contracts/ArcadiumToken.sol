@@ -34,8 +34,8 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
 
     // Automatic swap and liquify enabled
     bool public swapAndLiquifyEnabled = true;
-    // Min amount to liquify. (default 10 ARCADIUMs)
-    uint256 public minAmountToLiquify = 10 * (10 ** 18);
+    // Min amount to liquify. (default 50 ARCADIUMs)
+    uint256 public minAmountToLiquify = 50 * (10 ** 18);
     // The swap router, modifiable. Will be changed to ArcadiumSwap's router when our own AMM release
     IUniswapV2Router02 public arcadiumSwapRouter;
     // The trading pair
@@ -148,8 +148,8 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
                 if (IUniswapV2Pair(arcadiumSwapPair).token0() == address(this))
                     (res1, res0) = (res0, res1);
 
-                // only min amount to liquify
-                uint256 arcadiumLiquifyAmount = minAmountToLiquify;
+                // amount to liquify
+                uint256 arcadiumLiquifyAmount = contractTokenBalance / 2 > minAmountToLiquify ? contractTokenBalance / 2 : minAmountToLiquify;
 
                 // calculate how much eth is needed to use all of arcadiumLiquifyAmount
                 // also boost precision a tad.
