@@ -1,25 +1,25 @@
 # polyarcadium-contracts
 contracts for the stadium.polywantsacracker farm
 
-MyFriendsToken     @ [0xd871C50eF8865F0f83ab2b6E595fE2C3A091D5e0](https://polygonscan.com/address/0xd871C50eF8865F0f83ab2b6E595fE2C3A091D5e0)
+MyFriendsToken     @ [0xa509Da749745Ac07E9Ae47E7a092eAd2648B47f2](https://polygonscan.com/address/0xa509Da749745Ac07E9Ae47E7a092eAd2648B47f2)
 
-AracdiumToken      @ [0xeB0d362862982110B6e146d9bD7515800a12bCc0](https://polygonscan.com/address/0xeB0d362862982110B6e146d9bD7515800a12bCc0)
+AracdiumToken      @ [0x3F374ed3C8e61A0d250f275609be2219005c021e](https://polygonscan.com/address/0x3F374ed3C8e61A0d250f275609be2219005c021e)
 
-MasterChef         @ [0x257CCB5b0c13D89E702D79D1fce9CDbEDc9fCD96](https://polygonscan.com/address/0x257CCB5b0c13D89E702D79D1fce9CDbEDc9fCD96)
+MasterChef         @ [0x9DD1fe32Aff4060c12E2b42961548876053187c6](https://polygonscan.com/address/0x9DD1fe32Aff4060c12E2b42961548876053187c6)
 
 ArcadiumToolBox    @ [0x9a45f77c3204366fb2ec1FdEADF5887EC6dB476B](https://polygonscan.com/address/0x9a45f77c3204366fb2ec1FdEADF5887EC6dB476B)
 
-ArcadiumReferral   @ [0xEb47BD87C4e1A9C27B24Ffe5DDe865511846De47](https://polygonscan.com/address/0xEb47BD87C4e1A9C27B24Ffe5DDe865511846De47)
+ArcadiumReferral   @ [0x2eA1955C58B195e6d43430c46a791B6934375E84](https://polygonscan.com/address/0x2eA1955C58B195e6d43430c46a791B6934375E84)
 
-PreMyFriends       @ [0x6b9A41bAC5aB88dc3A9D144e8757F2912f61f626](https://polygonscan.com/address/0x6b9A41bAC5aB88dc3A9D144e8757F2912f61f626)
+PreMyFriends       @ [0xe7280E6b0E8589c70576d3bd22BBe245d481Cf99](https://polygonscan.com/address/0xe7280E6b0E8589c70576d3bd22BBe245d481Cf99)
 
-PreArcadium        @ [0x642530E83e23B0EAFE53982F0e6D9F4339Ed0272](https://polygonscan.com/address/0x642530E83e23B0EAFE53982F0e6D9F4339Ed0272)
+PreArcadium        @ [0x273FE932bC9792b6cDA3C837A5231CE3F0Da21d9](https://polygonscan.com/address/0x273FE932bC9792b6cDA3C837A5231CE3F0Da21d9)
 
-L2LithSwap         @ [0x933c7603B9d0a0d16A59b913606813094271a4D2](https://polygonscan.com/address/0x933c7603B9d0a0d16A59b913606813094271a4D2)
+L2LithSwap         @ [0x5A4F563fe25Ca93bBE4Cbe8029499657b513F9C2](https://polygonscan.com/address/0x5A4F563fe25Ca93bBE4Cbe8029499657b513F9C2)
 
-L2TokenRedeem      @ [0xe14E2dEbBb4DF26C9c7ADFaDeE8cc66C37e420c3](https://polygonscan.com/address/0xe14E2dEbBb4DF26C9c7ADFaDeE8cc66C37e420c3s)
+L2TokenRedeem      @ [0x3AB5a9AF4eEaa173D83a2AE36c81FF84cB6FEd06](https://polygonscan.com/address/0x3AB5a9AF4eEaa173D83a2AE36c81FF84cB6FEd06)
 
-AddLiquidityHelper @ [0x3d4f267158382bEa9e06e142113918077ddfb19F](https://polygonscan.com/address/0x3d4f267158382bEa9e06e142113918077ddfb19F)
+AddLiquidityHelper @ [0x75eF87C8994c6c7Bc07C80fEf255AFb32dCE77C2](https://polygonscan.com/address/0x75eF87C8994c6c7Bc07C80fEf255AFb32dCE77C2)
 
 Timelock           @ [0x6a8af1dbFdb32dAc39BF8A386c03cC8857a107a8](https://polygonscan.com/address/0x6a8af1dbFdb32dAc39BF8A386c03cC8857a107a8)
 
