@@ -23,3 +23,5 @@ AddLiquidityHelper @ [0x3d4f267158382bEa9e06e142113918077ddfb19F](https://polygo
 
 Timelock           @ [0x6a8af1dbFdb32dAc39BF8A386c03cC8857a107a8](https://polygonscan.com/address/0x6a8af1dbFdb32dAc39BF8A386c03cC8857a107a8)
 
+Locker             @ [ 0x3437008342c7332C82c30558ab45400C6362c7F4](https://polygonscan.com/address/0x3437008342c7332C82c30558ab45400C6362c7F4)
+
