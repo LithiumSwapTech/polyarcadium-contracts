@@ -7,7 +7,7 @@ AracdiumToken      @ [0x3F374ed3C8e61A0d250f275609be2219005c021e](https://polygo
 
 MasterChef         @ [0x9DD1fe32Aff4060c12E2b42961548876053187c6](https://polygonscan.com/address/0x9DD1fe32Aff4060c12E2b42961548876053187c6)
 
-ArcadiumToolBox    @ [0x9a45f77c3204366fb2ec1FdEADF5887EC6dB476B](https://polygonscan.com/address/0x9a45f77c3204366fb2ec1FdEADF5887EC6dB476B)
+ArcadiumToolBox    @ [0xAdD074Dd2A2ce3552768fA75152ad53aC2842eDC](https://polygonscan.com/address/0xAdD074Dd2A2ce3552768fA75152ad53aC2842eDC)
 
 ArcadiumReferral   @ [0x2eA1955C58B195e6d43430c46a791B6934375E84](https://polygonscan.com/address/0x2eA1955C58B195e6d43430c46a791B6934375E84)
 
