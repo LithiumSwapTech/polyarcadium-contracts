@@ -10,26 +10,17 @@ import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 
 contract RHCPToolBox {
-    // The swap router, modifiable. Will be changed to ArcadiumSwap's router when our own AMM release
-    IUniswapV2Router02 public arcadiumSwapRouter;
 
-    uint256 public startBlock;
+    IUniswapV2Router02 public immutable arcadiumSwapRouter;
 
-    // The operator can only update the transfer tax rate
-    address private _operator;
-
-    modifier onlyOperator() {
-        require(_operator == msg.sender, "operator: caller is not the operator");
-        _;
-    }
+    uint256 public immutable startBlock;
 
     /**
      * @notice Constructs the ArcadiumToken contract.
      */
-    constructor(uint256 _startBlock) public {
+    constructor(uint256 _startBlock, IUniswapV2Router02 _arcadiumSwapRouter) public {
         startBlock = _startBlock;
-
-        _operator = msg.sender;
+        arcadiumSwapRouter = _arcadiumSwapRouter;
     }
 
     function convertToTargetValueFromPair(IUniswapV2Pair pair, uint256 sourceTokenAmount, address targetAddress) public view returns (uint256) {
@@ -37,35 +28,17 @@ contract RHCPToolBox {
         if (sourceTokenAmount == 0)
             return 0;
 
-        uint256 targetEquivalentAmount = 0;
-        if (pair.token0() == targetAddress) {
-            (uint256 res0, uint256 res1, ) = pair.getReserves();
-            if (res0 == 0 || res1 == 0)
-                return 0;
-            uint8 token1Decimals = ERC20(pair.token1()).decimals();
-            uint8 targetDecimal  = ERC20(targetAddress).decimals();
-            targetEquivalentAmount = (res0 * sourceTokenAmount) / res1;
-            if (token1Decimals < targetDecimal)
-                targetEquivalentAmount = targetEquivalentAmount / (10 ** (targetDecimal - token1Decimals));
-            else if (token1Decimals > targetDecimal)
-                targetEquivalentAmount = targetEquivalentAmount  / (10 ** (token1Decimals - targetDecimal));
-        } else if (pair.token1() == targetAddress){
-            (uint256 res0, uint256 res1, ) = pair.getReserves();
-            if (res0 == 0 || res1 == 0)
-                return 0;
-            uint8 token0Decimals = ERC20(pair.token0()).decimals();
-            uint8 targetDecimal  = ERC20(targetAddress).decimals();
-            targetEquivalentAmount = (res1 * sourceTokenAmount) / res0;
-            if (token0Decimals < targetDecimal)
-                targetEquivalentAmount = targetEquivalentAmount / (10 ** (targetDecimal - token0Decimals));
-            else if (token0Decimals > targetDecimal)
-                targetEquivalentAmount = targetEquivalentAmount * (10 ** (token0Decimals - targetDecimal));
-        }
+        (uint256 res0, uint256 res1, ) = pair.getReserves();
+        if (res0 == 0 || res1 == 0)
+            return 0;
 
-        return targetEquivalentAmount;
+        if (pair.token0() == targetAddress)
+            return (res0 * sourceTokenAmount) / res1;
+        else
+            return (res1 * sourceTokenAmount) / res0;
     }
 
-    function getTokenUSDCValue(uint256 tokenBalance, address token, uint8 tokenType, bool viaBnbUSDC, address usdcAddress) external view returns (uint256) {
+    function getTokenUSDCValue(uint256 tokenBalance, address token, uint8 tokenType, bool viaMaticUSDC, address usdcAddress) external view returns (uint256) {
         require(tokenType == 0 || tokenType == 1, "invalid token type provided");
         if (token == address(usdcAddress))
             return tokenBalance;
@@ -75,11 +48,11 @@ contract RHCPToolBox {
             IUniswapV2Pair lpToken = IUniswapV2Pair(token);
             if (lpToken.totalSupply() == 0)
                 return 0;
-            // If lp contains usdc, we can take a short cut
+            // If lp contains usdc, we can take a short-cut
             if (lpToken.token0() == address(usdcAddress)) {
-                return tokenBalance * ((IERC20(lpToken.token0()).balanceOf(address(lpToken))) * 2) / lpToken.totalSupply();
+                return (IERC20(lpToken.token0()).balanceOf(address(lpToken)) * tokenBalance * 2) / lpToken.totalSupply();
             } else if (lpToken.token1() == address(usdcAddress)){
-                return tokenBalance * ((IERC20(lpToken.token1()).balanceOf(address(lpToken))) * 2) / lpToken.totalSupply();
+                return (IERC20(lpToken.token1()).balanceOf(address(lpToken)) * tokenBalance * 2) / lpToken.totalSupply();
             }
         }
 
@@ -91,33 +64,34 @@ contract RHCPToolBox {
                         (IUniswapV2Pair(token).token1() == arcadiumSwapRouter.WETH() ? arcadiumSwapRouter.WETH() : IUniswapV2Pair(token).token0());
         }
 
+        // if it is an LP token we work with all of the reserve in the LP address to scale down later.
         uint256 tokenAmount = (tokenType == 1) ? IERC20(token).balanceOf(lpTokenAddress) : tokenBalance;
 
         uint256 usdcEquivalentAmount = 0;
 
-        if (viaBnbUSDC) {
-            uint256 bnbAmount = 0;
+        if (viaMaticUSDC) {
+            uint256 maticAmount = 0;
 
             if (token == arcadiumSwapRouter.WETH()) {
-                bnbAmount = tokenAmount;
+                maticAmount = tokenAmount;
             } else {
 
                 // As we arent working with usdc at this point (early return), this is okay.
-                IUniswapV2Pair bnbPair = IUniswapV2Pair(IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(arcadiumSwapRouter.WETH(), token));
+                IUniswapV2Pair maticPair = IUniswapV2Pair(IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(arcadiumSwapRouter.WETH(), token));
 
-                if (address(bnbPair) == address(0))
+                if (address(maticPair) == address(0))
                     return 0;
 
-                bnbAmount = convertToTargetValueFromPair(bnbPair, tokenAmount, arcadiumSwapRouter.WETH());
+                maticAmount = convertToTargetValueFromPair(maticPair, tokenAmount, arcadiumSwapRouter.WETH());
             }
 
             // As we arent working with usdc at this point (early return), this is okay.
-            IUniswapV2Pair usdcbnbPair = IUniswapV2Pair(IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(arcadiumSwapRouter.WETH(), address(usdcAddress)));
+            IUniswapV2Pair usdcmaticPair = IUniswapV2Pair(IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(arcadiumSwapRouter.WETH(), address(usdcAddress)));
 
-            if (address(usdcbnbPair) == address(0))
+            if (address(usdcmaticPair) == address(0))
                 return 0;
 
-            usdcEquivalentAmount = convertToTargetValueFromPair(usdcbnbPair, bnbAmount, usdcAddress);
+            usdcEquivalentAmount = convertToTargetValueFromPair(usdcmaticPair, maticAmount, usdcAddress);
         } else {
             // As we arent working with usdc at this point (early return), this is okay.
             IUniswapV2Pair usdcPair = IUniswapV2Pair(IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(address(usdcAddress), token));
@@ -128,8 +102,10 @@ contract RHCPToolBox {
             usdcEquivalentAmount = convertToTargetValueFromPair(usdcPair, tokenAmount, usdcAddress);
         }
 
+        // for the tokenType == 1 path usdcEquivalentAmount is the USDC value of all the tokens in the parent LP contract.
+
         if (tokenType == 1)
-            return (usdcEquivalentAmount * 2 * tokenBalance) / IUniswapV2Pair(lpTokenAddress).totalSupply();
+            return (usdcEquivalentAmount * tokenBalance * 2) / IUniswapV2Pair(lpTokenAddress).totalSupply();
         else
             return usdcEquivalentAmount;
     }
@@ -145,7 +121,7 @@ contract RHCPToolBox {
 
         if (isIncreasingGradient) {
             // if there is a logical error, we return 0
-            if (endEmission < deltaHeight)
+            if (endEmission >= deltaHeight)
                 currentArcadiumEmission = endEmission - deltaHeight;
             else
                 currentArcadiumEmission = 0;
@@ -158,7 +134,7 @@ contract RHCPToolBox {
     function calcEmissionGradient(uint256 _block, uint256 currentEmission, uint256 gradientEndBlock, uint256 endEmission) external pure returns (uint256) {
         uint256 arcadiumReleaseGradient;
 
-        // if th gradient is 0 we interpret that as an unchanging 0 gradient.
+        // if the gradient is 0 we interpret that as an unchanging 0 gradient.
         if (currentEmission != endEmission && _block < gradientEndBlock) {
             bool isIncreasingGradient = endEmission > currentEmission;
             if (isIncreasingGradient)
@@ -194,10 +170,10 @@ contract RHCPToolBox {
                 baseEmission = getArcadiumEmissionForBlock(_from, isIncreasingGradient, releaseGradient, gradientEndBlock, endEmission);
             else
                 baseEmission = getArcadiumEmissionForBlock(_to, isIncreasingGradient, releaseGradient, gradientEndBlock, endEmission);
-            return (((totalWidth * baseEmission) + (totalWidth * heightDelta) / 1e24) / 2);
+            return totalWidth * baseEmission + (((totalWidth * heightDelta) / 2) / 1e24);
         }
 
-        // Special case when we are transitioning between promo2 and normal era.
+        // Special case when we are transitioning between promo and normal era.
         if (!isFlatEmission(gradientEndBlock, clippedFrom) && isFlatEmission(gradientEndBlock, _to)) {
             uint256 blocksUntilGradientEnd = gradientEndBlock - clippedFrom;
             uint256 heightDelta = releaseGradient * blocksUntilGradientEnd;
@@ -208,20 +184,11 @@ contract RHCPToolBox {
             else
                 baseEmission = getArcadiumEmissionForBlock(_from, isIncreasingGradient, releaseGradient, gradientEndBlock, endEmission);
 
-            return (((totalWidth * baseEmission) - (blocksUntilGradientEnd * heightDelta) / 1e24) / 2);
+            return totalWidth * baseEmission - (((blocksUntilGradientEnd * heightDelta) / 2) / 1e24);
         }
 
         // huh?
         // shouldnt happen, but also don't want to assert false here either.
         return 0;
-    }
-
-    /**
-     * @dev Update the swap router.
-     * Can only be called by the current operator.
-     */
-    function updateArcadiumSwapRouter(address _router) public onlyOperator {
-        require(_router != address(0), "router cannot be the 0 address");
-        arcadiumSwapRouter = IUniswapV2Router02(_router);
     }
 }

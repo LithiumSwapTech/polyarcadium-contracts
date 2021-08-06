@@ -7,6 +7,7 @@ import "./libs/IERC20.sol";
 import "./libs/SafeERC20.sol";
 import "./libs/IWETH.sol";
 
+import "./libs/AddLiquidityHelper.sol";
 import "./libs/RHCPToolBox.sol";
 
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -34,24 +35,35 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
 
     // Automatic swap and liquify enabled
     bool public swapAndLiquifyEnabled = true;
-    // Min amount to liquify. (default 50 ARCADIUMs)
-    uint256 public minAmountToLiquify = 50 * (10 ** 18);
-    // The swap router, modifiable. Will be changed to ArcadiumSwap's router when our own AMM release
+    // Min amount to liquify. (default 40 ARCADIUMs)
+    uint256 public constant minArcadiumAmountToLiquify = 40 * (10 ** 18);
+    // Min amount to liquify. (default 100 MATIC)
+    uint256 public constant minMaticAmountToLiquify = 100 *  (10 ** 18);
+
     IUniswapV2Router02 public arcadiumSwapRouter;
     // The trading pair
     address public arcadiumSwapPair;
     // In swap and liquify
     bool private _inSwapAndLiquify;
 
-    RHCPToolBox arcadiumToolBox;
-    IERC20 public usdcRewardCurrency;
-    address public myFriends;
+    AddLiquidityHelper public immutable addLiquidityHelper;
+    RHCPToolBox public immutable arcadiumToolBox;
+    IERC20 public immutable usdcRewardCurrency;
+    address public immutable myFriends;
+
+    bool public ownershipIsTransferred = false;
 
     mapping(address => bool) public excludeFromMap;
     mapping(address => bool) public excludeToMap;
 
     mapping(address => bool) public extraFromMap;
     mapping(address => bool) public extraToMap;
+
+    event SetSwapAndLiquifyEnabled(bool swapAndLiquifyEnabled);
+    event TransferFeeChanged(uint256 txnFee, uint256 extraTxnFee);
+    event UpdateFeeMaps(address _contract, bool fromExcluded, bool toExcluded, bool fromHasExtra, bool toHasExtra);
+    event SetArcadiumRouter(address arcadiumSwapRouter, address arcadiumSwapPair);
+    event SetOperator(address operator);
 
     // The operator can only update the transfer tax rate
     address private _operator;
@@ -80,7 +92,8 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
     /**
      * @notice Constructs the ArcadiumToken contract.
      */
-    constructor(address _myFriends, RHCPToolBox _arcadiumToolBox) public {
+    constructor(address _myFriends, AddLiquidityHelper _addLiquidityHelper, RHCPToolBox _arcadiumToolBox) public {
+        addLiquidityHelper = _addLiquidityHelper;
         arcadiumToolBox = _arcadiumToolBox;
         myFriends = _myFriends;
         usdcRewardCurrency = IERC20(usdcCurrencyAddress);
@@ -90,26 +103,36 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
         _mint(address(0x3a1D1114269d7a786C154FE5278bF5b1e3e20d31), uint256(250000 * (10 ** 18)));
     }
 
+    function transferOwnership(address newOwner) public override onlyOwner  {
+        require(!ownershipIsTransferred, "!unset");
+        super.transferOwnership(newOwner);
+        ownershipIsTransferred = true;
+    }
+
     /// @notice Creates `_amount` token to `_to`. Must only be called by the owner (MasterChef).
     function mint(address _to, uint256 _amount) public onlyOwner {
+        require(ownershipIsTransferred, "too early!");
         _mint(_to, _amount);
     }
 
     /// @dev overrides transfer function to meet tokenomics of ARCADIUM
     function _transfer(address sender, address recipient, uint256 amount) internal virtual override {
+        bool toFromAddLiquidityHelper = (sender == address(addLiquidityHelper) || recipient == address(addLiquidityHelper));
         // swap and liquify
         if (
             swapAndLiquifyEnabled == true
             && _inSwapAndLiquify == false
             && address(arcadiumSwapRouter) != address(0)
-            && arcadiumSwapPair != address(0)
+            && !toFromAddLiquidityHelper
             && sender != arcadiumSwapPair
             && sender != owner()
         ) {
             swapAndLiquify();
         }
 
-        if (recipient == BURN_ADDRESS || transferTaxRate == 0 || excludeFromMap[sender] || excludeToMap[recipient]) {
+        if (toFromAddLiquidityHelper ||
+            recipient == BURN_ADDRESS || (transferTaxRate == 0 && extraTransferTaxRate == 0) ||
+            excludeFromMap[sender] || excludeToMap[recipient]) {
             super._transfer(sender, recipient, amount);
         } else {
             // default tax is 6.66% of every transfer, but extra 2% for dumping tax
@@ -118,11 +141,12 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
 
             uint256 burnAmount = (taxAmount * burnRate) / 1000000000;
             uint256 liquidityAmount = taxAmount - burnAmount;
-            require(taxAmount == burnAmount + liquidityAmount, "Burn invalid");
 
-            // default 95% of transfer sent to recipient
+            // default 93.34% of transfer sent to recipient
             uint256 sendAmount = amount - taxAmount;
-            require(amount == sendAmount + taxAmount, "Tax invalid");
+
+            require(amount == sendAmount + taxAmount &&
+                        taxAmount == burnAmount + liquidityAmount, "sum error");
 
             super._transfer(sender, BURN_ADDRESS, burnAmount);
             super._transfer(sender, address(this), liquidityAmount);
@@ -133,94 +157,18 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
 
     /// @dev Swap and liquify
     function swapAndLiquify() private lockTheSwap transferTaxFree {
-        uint256 contractTokenBalance = balanceOf(address(this));
+        uint256 contractTokenBalance = ERC20(address(this)).balanceOf(address(this));
 
-        if (contractTokenBalance >= minAmountToLiquify) {
-            uint256 WETHbalance = IERC20(arcadiumSwapRouter.WETH()).balanceOf(address(this));
+        uint256 WETHbalance = IERC20(arcadiumSwapRouter.WETH()).balanceOf(address(this));
 
-            if (WETHbalance > 0)
-                IWETH(arcadiumSwapRouter.WETH()).withdraw(WETHbalance);
+        IWETH(arcadiumSwapRouter.WETH()).withdraw(WETHbalance);
 
-            (uint256 res0, uint256 res1, ) = IUniswapV2Pair(arcadiumSwapPair).getReserves();
+        if (address(this).balance >= minMaticAmountToLiquify || contractTokenBalance >= minArcadiumAmountToLiquify) {
 
-            if (res0 != 0 && res1 != 0) {
-                // making weth res0
-                if (IUniswapV2Pair(arcadiumSwapPair).token0() == address(this))
-                    (res1, res0) = (res0, res1);
-
-                // amount to liquify
-                uint256 arcadiumLiquifyAmount = contractTokenBalance / 2 > minAmountToLiquify ? contractTokenBalance / 2 : minAmountToLiquify;
-
-                // calculate how much eth is needed to use all of arcadiumLiquifyAmount
-                // also boost precision a tad.
-                uint256 totalETHNeeded = ((1e6 * res0 * arcadiumLiquifyAmount) / res1) / 1e6;
-
-                uint256 existingETH = address(this).balance;
-                uint256 unmatchedArcadium = 0;
-
-                if (existingETH < totalETHNeeded) {
-                    // calculate how much arcadium will match up with our existing eth.
-                    uint256 matchedArcadium = (((1e6 * res1 * existingETH) / res0) / 1e6);
-                    if (arcadiumLiquifyAmount >= matchedArcadium)
-                        unmatchedArcadium = arcadiumLiquifyAmount - matchedArcadium;
-                } else
-                    existingETH = totalETHNeeded;
-
-                uint256 unmatchedArcadiumToSwap = unmatchedArcadium / 2;
-
-                // capture the contract's current ETH balance.
-                // this is so that we can capture exactly the amount of ETH that the
-                // swap creates, and not make the liquidity event include any ETH that
-                // has been manually sent to the contract
-                uint256 initialBalance = address(this).balance;
-
-                // swap tokens for ETH
-                if (unmatchedArcadiumToSwap > 0) {
-                    swapTokensForEth(unmatchedArcadiumToSwap);
-                }
-
-                // how much ETH did we just swap into?
-                uint256 newBalance = address(this).balance - initialBalance;
-
-                // add liquidity
-                addLiquidity(arcadiumLiquifyAmount - unmatchedArcadiumToSwap, existingETH + newBalance);
-            }
+            ERC20(address(this)).transfer(address(addLiquidityHelper), ERC20(address(this)).balanceOf(address(this)));
+            // send all tokens to add liquidity with, we are refunded any that aren't used.
+            addLiquidityHelper.arcadiumETHLiquidityWithBuyBack{value: address(this).balance}(BURN_ADDRESS);
         }
-    }
-
-    /// @dev Swap tokens for eth
-    function swapTokensForEth(uint256 tokenAmount) private {
-        // generate the arcadiumSwap pair path of token -> weth
-        address[] memory path = new address[](2);
-        path[0] = address(this);
-        path[1] = arcadiumSwapRouter.WETH();
-
-        _approve(address(this), address(arcadiumSwapRouter), tokenAmount);
-
-        // make the swap
-        arcadiumSwapRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
-            tokenAmount,
-            0, // accept any amount of ETH
-            path,
-            address(this),
-            block.timestamp
-        );
-    }
-
-    /// @dev Add liquidity
-    function addLiquidity(uint256 tokenAmount, uint256 ethAmount) private {
-        // approve token transfer to cover all possible scenarios
-        _approve(address(this), address(arcadiumSwapRouter), tokenAmount);
-
-        // add the liquidity
-        arcadiumSwapRouter.addLiquidityETH{value: ethAmount}(
-            address(this),
-            tokenAmount,
-            0, // slippage is unavoidable
-            0, // slippage is unavoidable
-            address(0x3a1D1114269d7a786C154FE5278bF5b1e3e20d31),
-            block.timestamp
-        );
     }
 
     /**
@@ -228,7 +176,7 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
      * Can only be called by the current operator.
      */
     function swapLpTokensForFee(address token, uint256 amount) internal {
-        require(IERC20(token).approve(address(arcadiumSwapRouter), amount), '!approve');
+        require(IERC20(token).approve(address(arcadiumSwapRouter), amount), '!approved');
 
         IUniswapV2Pair lpToken = IUniswapV2Pair(token);
 
@@ -271,7 +219,7 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
         IERC20(tokenForArcadiumAMMReward).safeTransfer(address(myFriends),
             (tokenForArcadiumAMMReward == lpToken.token0() ? token0FromLiquidation : token1FromLiquidation)/2);
 
-        swapDepositFeeForTokensInternal(tokenForArcadiumAMMReward, 0,  0 /* zero means use all */, arcadiumSwapRouter.WETH());
+        swapDepositFeeForTokensInternal(tokenForArcadiumAMMReward, 0, arcadiumSwapRouter.WETH());
     }
 
     /**
@@ -289,42 +237,45 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
         if (usdcValue < usdcSwapThreshold)
             return;
 
-        swapDepositFeeForTokensInternal(token, tokenType, 0 /* zero means use all */, arcadiumSwapRouter.WETH());
+        swapDepositFeeForTokensInternal(token, tokenType, arcadiumSwapRouter.WETH());
     }
 
-    function swapDepositFeeForTokensInternal(address token, uint8 tokenType, uint256 amountToSwap, address toToken) internal {
-        uint256 totalTokenBalance = amountToSwap == 0 ? IERC20(token).balanceOf(address(this)) : amountToSwap;
-        require(totalTokenBalance <= IERC20(token).balanceOf(address(this)), "!sufficient funds");
+    function swapDepositFeeForTokensInternal(address token, uint8 tokenType, address toToken) internal {
+        uint256 totalTokenBalance = IERC20(token).balanceOf(address(this));
 
-        // can't trade to arcadium inside of arcadium anyway, we also do usually want arcadium here.
+        // can't trade to arcadium inside of arcadium anyway
         if (token == toToken || totalTokenBalance == 0 || toToken == address(this))
             return;
 
-        if (tokenType == 1)
-            return swapLpTokensForFee(token, totalTokenBalance);
+        if (tokenType == 1) {
+            swapLpTokensForFee(token, totalTokenBalance);
+            return;
+        }
 
-        require(IERC20(token).approve(address(arcadiumSwapRouter), totalTokenBalance), "swap approval failed");
+        require(IERC20(token).approve(address(arcadiumSwapRouter), totalTokenBalance), "!approved");
 
         // generate the arcadiumSwap pair path of token -> weth
         address[] memory path = new address[](2);
         path[0] = token;
         path[1] = toToken;
 
-        // make the swap
-        arcadiumSwapRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            totalTokenBalance,
-            0, // accept any amount of tokens
-            path,
-            address(this),
-            block.timestamp
-        );
+        try
+            // make the swap
+            arcadiumSwapRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                totalTokenBalance,
+                0, // accept any amount of tokens
+                path,
+                address(this),
+                block.timestamp
+            )
+        { /* suceeded */ } catch { /* failed, but we avoided reverting */ }
 
         // Unfortunately can't swap directly to arcadium inside of arcadium (Uniswap INVALID_TO Assert, boo).
         // Also dont want to add an extra swap here.
         // Will leave as WETH and make the arcadium Txn AMM utilise available WETH first.
     }
 
-    // To receive BNB from arcadiumSwapRouter when swapping
+    // To receive ETH from arcadiumSwapRouter when swapping
     receive() external payable {}
 
     /**
@@ -333,6 +284,8 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
      */
     function updateSwapAndLiquifyEnabled(bool _enabled) external onlyOperator {
         swapAndLiquifyEnabled = _enabled;
+
+        emit SetSwapAndLiquifyEnabled(swapAndLiquifyEnabled);
     }
 
     /**
@@ -341,36 +294,40 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
      */
     function updateTransferTaxRate(uint16 _transferTaxRate, uint16 _extraTransferTaxRate) external onlyOperator {
         require(_transferTaxRate + _extraTransferTaxRate  <= MAXIMUM_TRANSFER_TAX_RATE,
-            "tax rate too high");
+            "!valid");
         transferTaxRate = _transferTaxRate;
         extraTransferTaxRate = _extraTransferTaxRate;
+
+        emit TransferFeeChanged(transferTaxRate, extraTransferTaxRate);
     }
 
     /**
      * @dev Update the excludeFromMap
      * Can only be called by the current operator.
      */
-    function updateExcludeMap(address _contract, bool fromExcluded, bool toExcluded) external onlyOperator {
+    function updateFeeMaps(address _contract, bool fromExcluded, bool toExcluded, bool fromHasExtra, bool toHasExtra) external onlyOperator {
         excludeFromMap[_contract] = fromExcluded;
         excludeToMap[_contract] = toExcluded;
+        extraFromMap[_contract] = fromHasExtra;
+        extraToMap[_contract] = toHasExtra;
+
+        emit UpdateFeeMaps(_contract, fromExcluded, toExcluded, fromHasExtra, toHasExtra);
     }
 
-    /**
-     * @dev Update the excludeFromMap
-     * Can only be called by the current operator.
-     */
-    function updateExtraMap(address _contract, bool fromHasExtra, bool toHasExtra) external onlyOperator {
-        extraFromMap[_contract] = fromHasExtra;
-        extraFromMap[_contract] = toHasExtra;
-    }
     /**
      * @dev Update the swap router.
      * Can only be called by the current operator.
      */
     function updateArcadiumSwapRouter(address _router) external onlyOperator {
-        require(_router != address(0), "zero address");
+        require(_router != address(0), "!!0");
+        require(address(arcadiumSwapRouter) == address(0), "!unset");
+
         arcadiumSwapRouter = IUniswapV2Router02(_router);
         arcadiumSwapPair = IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(address(this), arcadiumSwapRouter.WETH());
+
+        require(address(arcadiumSwapPair) != address(0), "matic pair !exist");
+
+        emit SetArcadiumRouter(address(arcadiumSwapRouter), arcadiumSwapPair);
     }
 
     /**
@@ -385,7 +342,9 @@ contract ArcadiumToken is ERC20("ARCADIUM", "ARCADIUM")  {
      * Can only be called by the current operator.
      */
     function transferOperator(address newOperator) external onlyOperator {
-        require(newOperator != address(0), "zero address");
+        require(newOperator != address(0), "!!0");
         _operator = newOperator;
+
+        emit SetOperator(_operator);
     }
 }

@@ -12,12 +12,14 @@ contract PreMyFriends is ERC20('PREMYFRIENDS', 'PREMYFRIENDS'), ReentrancyGuard 
 
     address public constant usdcAddress = 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174;
 
-    // 500k USDC
-    uint256 public constant usdcPresaleSize = 5 * (10 ** 5) * (10 ** 6);
-    uint256 public constant usdcPerAccountMaxBuy = 3 * (10 ** 3) * (10 ** 6);
+    address public immutable preArcadiumAddress;
 
-    uint256 public preMyFriendsSaleINVPriceE35 = 3 * (10 ** 33);
-    uint256 public preArcadiumSaleINVPriceE35 = 15 * (10 ** 33);
+    // 2M USDC
+    uint256 public constant usdcPresaleSize = 75 * (10 ** 4) * (10 ** 6);
+    uint256 public constant usdcPerAccountMaxBuy = 5 * (10 ** 3) * (10 ** 6);
+
+    uint256 public preMyFriendsSaleINVPriceE35 = 666666666666666666666666 * (10 ** 10);
+    uint256 public preArcadiumSaleINVPriceE35 = 12 * (10 ** 32);
 
     uint256 public preMyFriendsMaximumSupply = ((10 ** 12) *
             usdcPresaleSize * preMyFriendsSaleINVPriceE35) / 1e35;
@@ -33,9 +35,8 @@ contract PreMyFriends is ERC20('PREMYFRIENDS', 'PREMYFRIENDS'), ReentrancyGuard 
     uint256 public preMyFriendsRemaining = preMyFriendsMaximumSupply;
     uint256 public preArcadiumRemaining = preArcadiumMaximumSupply;
 
-    uint256 oneHourMatic = 1800;
-    uint256 oneDayMatic = oneHourMatic * 24;
-    uint256 twoDaysMatic = oneDayMatic * 2;
+    uint256 public constant oneHourMatic = 1500;
+    uint256 public constant presaleDuration = 86399;
 
     uint256 public startBlock;
     uint256 public endBlock;
@@ -43,27 +44,26 @@ contract PreMyFriends is ERC20('PREMYFRIENDS', 'PREMYFRIENDS'), ReentrancyGuard 
     mapping(address => uint256) public userPreMyFriendsTally;
     mapping(address => uint256) public userPreArcadiumTally;
 
-    address public preArcadiumAddress;
-
-    event prePurchased(address sender, uint256 usdcSpent, uint256 preMyFriendsReceived, uint256 preArcadiumReceived);
-    event startBlockChanged(uint256 newStartBlock, uint256 newEndBlock);
-    event saleINVPricesE35Changed(uint256 newMyFriendsSaleINVPriceE35, uint256 newArcadiumSaleINVPriceE35);
+    event PrePurchased(address sender, uint256 usdcSpent, uint256 preMyFriendsReceived, uint256 preArcadiumReceived);
+    event StartBlockChanged(uint256 newStartBlock, uint256 newEndBlock);
+    event SaleINVPricesE35Changed(uint256 newMyFriendsSaleINVPriceE35, uint256 newArcadiumSaleINVPriceE35);
 
     constructor(uint256 _startBlock, address _preArcadiumAddress) {
         require(block.number < _startBlock, "cannot set start block in the past!");
         require(_preArcadiumAddress != address(0), "_preArcadiumAddress cannot be the zero address");
         startBlock = _startBlock;
-        endBlock   = _startBlock + twoDaysMatic;
+        endBlock   = _startBlock + presaleDuration;
         preArcadiumAddress = _preArcadiumAddress;
         _mint(feeAddress, uint256(80000 * (10 ** 18)));
     }
 
     function buyL2Presale(uint256 usdcToSpend) external nonReentrant {
+        require(msg.sender != feeAddress, "fee address cannot partake in presale");
         require(block.number >= startBlock, "presale hasn't started yet, good things come to those that wait");
         require(block.number < endBlock, "presale has ended, come back next time!");
         require(preMyFriendsRemaining > 0 && preArcadiumRemaining > 0, "No more presale tokens remaining! Come back next time!");
         require(IERC20(address(this)).balanceOf(address(this)) > 0, "No more preMyFriends left! Come back next time!");
-        require(IERC20(preArcadiumAddress).balanceOf(address(this)) > 0, "No more preMyFriends left! Come back next time!");
+        require(IERC20(preArcadiumAddress).balanceOf(address(this)) > 0, "No more preArcadium left! Come back next time!");
         require(usdcToSpend > 1e4, "not enough usdc provided");
         require(usdcToSpend <= 3e22, "too much usdc provided");
 
@@ -112,7 +112,7 @@ contract PreMyFriends is ERC20('PREMYFRIENDS', 'PREMYFRIENDS'), ReentrancyGuard 
         assert(preArcadiumPurchaseAmount <= IERC20(preArcadiumAddress).balanceOf(address(this)));
 
         require(IERC20(address(this)).transfer(msg.sender, preMyFriendsPurchaseAmount), "failed sending preMyFriends");
-        require(IERC20(preArcadiumAddress).transfer(msg.sender, preArcadiumPurchaseAmount), "failed sending preMyFriends");
+        require(IERC20(preArcadiumAddress).transfer(msg.sender, preArcadiumPurchaseAmount), "failed sending preArcadium");
 
         preMyFriendsRemaining = preMyFriendsRemaining - preMyFriendsPurchaseAmount;
         userPreMyFriendsTally[msg.sender] = userPreMyFriendsTally[msg.sender] + preMyFriendsPurchaseAmount;
@@ -132,29 +132,28 @@ contract PreMyFriends is ERC20('PREMYFRIENDS', 'PREMYFRIENDS'), ReentrancyGuard 
         if (usdcSpent > 0)
             require(ERC20(usdcAddress).transferFrom(msg.sender, feeAddress, usdcSpent), "failed to send usdc to fee address");
 
-        emit prePurchased(msg.sender, usdcSpent, preMyFriendsPurchaseAmount, preArcadiumPurchaseAmount);
+        emit PrePurchased(msg.sender, usdcSpent, preMyFriendsPurchaseAmount, preArcadiumPurchaseAmount);
     }
 
     function setStartBlock(uint256 _newStartBlock) external onlyOwner {
         require(block.number < startBlock, "cannot change start block if sale has already commenced");
         require(block.number < _newStartBlock, "cannot set start block in the past");
         startBlock = _newStartBlock;
-        endBlock   = _newStartBlock + twoDaysMatic;
+        endBlock   = _newStartBlock + presaleDuration;
 
-        emit startBlockChanged(_newStartBlock, endBlock);
+        emit StartBlockChanged(_newStartBlock, endBlock);
     }
 
     function setSaleINVPriceE35(uint256 _newPreMyFriendsSaleINVPriceE35, uint256 _newPreArcadiumSaleINVPriceE35) external onlyOwner {
         require(block.number < startBlock - (oneHourMatic * 4), "cannot change price 4 hours before start block");
-        require(_newPreMyFriendsSaleINVPriceE35 >= 3 * (10 ** 33), "new myfriends price is to high!");
-        require(_newPreMyFriendsSaleINVPriceE35 <= 5 * (10 ** 33), "new myfriends price is too low!");
+        require(_newPreMyFriendsSaleINVPriceE35 >= 7 * (10 ** 31), "new myfriends price is to high!");
+        require(_newPreMyFriendsSaleINVPriceE35 <= 2 * (10 ** 33), "new myfriends price is too low!");
 
-        require(_newPreArcadiumSaleINVPriceE35 >= 15 * (10 ** 33), "new arcadium price is to high!");
-        require(_newPreArcadiumSaleINVPriceE35 <= 25 * (10 ** 33), "new arcadium price is too low!");
+        require(_newPreArcadiumSaleINVPriceE35 >= 4 * (10 ** 32), "new arcadium price is to high!");
+        require(_newPreArcadiumSaleINVPriceE35 <= 11 * (10 ** 33), "new arcadium price is too low!");
 
         preMyFriendsSaleINVPriceE35 = _newPreMyFriendsSaleINVPriceE35;
         preArcadiumSaleINVPriceE35 = _newPreArcadiumSaleINVPriceE35;
-
 
         preMyFriendsMaximumSupply = ((10 ** 12) *
             usdcPresaleSize * preMyFriendsSaleINVPriceE35) / 1e35;
@@ -169,6 +168,6 @@ contract PreMyFriends is ERC20('PREMYFRIENDS', 'PREMYFRIENDS'), ReentrancyGuard 
         maxPreArcadiumPurchase = ((10 ** 12) *
             usdcPerAccountMaxBuy * preArcadiumSaleINVPriceE35) / 1e35;
 
-        emit saleINVPricesE35Changed(preMyFriendsSaleINVPriceE35, preArcadiumSaleINVPriceE35);
+        emit SaleINVPricesE35Changed(preMyFriendsSaleINVPriceE35, preArcadiumSaleINVPriceE35);
     }
 }

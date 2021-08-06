@@ -5,6 +5,8 @@ pragma solidity ^0.8.0;
 import "./libs/ERC20.sol";
 import "./libs/IERC20.sol";
 
+import "./libs/RHCPToolBox.sol";
+
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
@@ -16,19 +18,23 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
     // Burn address
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
-    uint256 public usdcSwapThreshold = 20 * (10 ** 6);
+    uint256 public constant usdcSwapThreshold = 20 * (10 ** 6);
 
     // The operator can only update the transfer tax rate
     address private _operator;
 
-    IERC20 public usdcRewardCurrency;
+    IERC20 public immutable usdcRewardCurrency;
 
     uint256 usdcRewardBalance = 0;
 
-    // The swap router, modifiable. Will be changed to ArcadiumSwap's router when our own AMM release
+    RHCPToolBox arcadiumToolBox;
+
     IUniswapV2Router02 public arcadiumSwapRouter;
 
     // Events
+    event DistributeMyFriends(address recipient, uint256 myFriendsAmount);
+    event DepositFeeConvertedToUSDC(address indexed inputToken, uint256 inputAmount, uint256 usdcOutput);
+    event USDCTransferredToUser(address recipient, uint256 usdcAmount);
     event OperatorTransferred(address indexed previousOperator, address indexed newOperator);
     event ArcadiumSwapRouterUpdated(address indexed operator, address indexed router);
 
@@ -40,10 +46,11 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
     /**
      * @notice Constructs the ArcadiumToken contract.
      */
-    constructor(address _usdcCurrency) public {
+    constructor(address _usdcCurrency, RHCPToolBox _arcadiumToolBox) public {
         _operator = _msgSender();
         emit OperatorTransferred(address(0), _operator);
 
+        arcadiumToolBox = _arcadiumToolBox;
         usdcRewardCurrency = IERC20(_usdcCurrency);
 
         // Divvy up myFriends supply.
@@ -52,16 +59,15 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
     }
 
     /// @notice Sends `_amount` token to `_to`. Must only be called by the owner (MasterChef).
-    function distribute(address _to, uint256 _amount) public onlyOwner returns (uint256){
+    function distribute(address _to, uint256 _amount) external onlyOwner returns (uint256){
         uint256 sendAmount = _amount;
-        if (balanceOf(address(this)) < _amount) {
-            if (balanceOf(address(this)) == 0)
-                return 0;
+        if (balanceOf(address(this)) < _amount)
             sendAmount = balanceOf(address(this));
-        }
 
-        if (sendAmount > 0)
+        if (sendAmount > 0) {
             IERC20(address(this)).transfer(_to, sendAmount);
+            emit DistributeMyFriends(_to, sendAmount);
+        }
 
         return sendAmount;
     }
@@ -75,41 +81,6 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
 
     // To receive MATIC from arcadiumSwapRouter when swapping
     receive() external payable {}
-
-    function checkTokenStockpileUSDCValue(address token) internal view returns (uint256) {
-        if (token == address(usdcRewardCurrency))
-            return IERC20(token).balanceOf(address(this));
-
-        uint256 tokenBalance = IERC20(token).balanceOf(address(this));
-
-        IUniswapV2Pair usdcPair = IUniswapV2Pair(IUniswapV2Factory(arcadiumSwapRouter.factory()).getPair(token, address(usdcRewardCurrency)));
-
-        (uint256 res0, uint256 res1, ) = usdcPair.getReserves();
-        if (res0 == 0 || res1 == 0)
-            return 0;
-
-        uint256 usdcEquivalentAmount = 0;
-
-        if (usdcPair.token0() == address(usdcRewardCurrency)) {
-            uint8 token1Decimals = ERC20(usdcPair.token1()).decimals();
-            uint8 targetDecimal  = ERC20(address(usdcRewardCurrency)).decimals();
-            usdcEquivalentAmount = (res0 * tokenBalance) / res1;
-            if (token1Decimals < targetDecimal)
-                usdcEquivalentAmount = usdcEquivalentAmount / (10 ** (targetDecimal - token1Decimals));
-            else if (token1Decimals > targetDecimal)
-                usdcEquivalentAmount = usdcEquivalentAmount * (10 ** (token1Decimals - targetDecimal));
-        } else if (usdcPair.token1() == address(usdcRewardCurrency)){
-            uint8 token0Decimals = ERC20(usdcPair.token0()).decimals();
-            uint8 targetDecimal  = ERC20(address(usdcRewardCurrency)).decimals();
-            usdcEquivalentAmount = (res1 * tokenBalance) / res0;
-            if (token0Decimals < targetDecimal)
-                usdcEquivalentAmount = usdcEquivalentAmount / (10 ** (targetDecimal - token0Decimals));
-            else if (token0Decimals > targetDecimal)
-                usdcEquivalentAmount = usdcEquivalentAmount * (10 ** (token0Decimals - targetDecimal));
-        }
-
-        return usdcEquivalentAmount;
-    }
 
     /**
      * @dev sell all of a current type of token for usdc.
@@ -139,7 +110,7 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
             return amountLiquified;
         }
 
-        uint256 usdcValue = checkTokenStockpileUSDCValue(token);
+        uint256 usdcValue = arcadiumToolBox.getTokenUSDCValue(totalTokenBalance, token, tokenType, false, address(usdcRewardCurrency));
 
         if (totalTokenBalance == 0)
             return 0;
@@ -168,6 +139,8 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
 
         usdcRewardBalance = usdcRewardBalance + usdcProfit;
 
+        emit DepositFeeConvertedToUSDC(token, totalTokenBalance, usdcProfit);
+
         return usdcProfit;
     }
 
@@ -180,6 +153,8 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
         require(usdcRewardCurrency.transfer(recipient, amount), "transfer failed!");
 
         usdcRewardBalance = usdcRewardBalance - amount;
+
+        emit USDCTransferredToUser(recipient, amount);
     }
 
     /**
@@ -188,6 +163,8 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
      */
     function updateArcadiumSwapRouter(address _router) external onlyOperator {
         require(_router != address(0), "updateArcadiumSwapRouter: new _router is the zero address");
+        require(address(arcadiumSwapRouter) == address(0), "router already set!");
+
         arcadiumSwapRouter = IUniswapV2Router02(_router);
         emit ArcadiumSwapRouterUpdated(msg.sender, address(arcadiumSwapRouter));
     }
@@ -199,6 +176,7 @@ contract MyFriendsToken is ERC20("MYFRIENDS", "MYFRIENDS") {
     function transferOperator(address newOperator) external onlyOperator {
         require(newOperator != address(0), "transferOperator: new operator is the zero address");
         _operator = newOperator;
+
         emit OperatorTransferred(_operator, newOperator);
     }
 }

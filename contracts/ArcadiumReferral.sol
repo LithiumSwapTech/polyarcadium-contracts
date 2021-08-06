@@ -9,17 +9,18 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract ArcadiumReferral is IArcadiumReferral, Ownable {
 
-    mapping(address => bool) public operators;
+    address public operator;
+
     mapping(address => address) public referrers; // user address => referrer address
     mapping(address => uint256) public referralsCount; // referrer address => referrals count
     mapping(address => uint256) public totalReferralCommissions; // referrer address => total referral commissions
 
     event ReferralRecorded(address indexed user, address indexed referrer);
     event ReferralCommissionRecorded(address indexed referrer, uint256 commission);
-    event OperatorUpdated(address indexed operator, bool indexed status);
+    event OperatorUpdated(address indexed operator);
 
     modifier onlyOperator {
-        require(operators[msg.sender], "Operator: caller is not the operator");
+        require(operator == msg.sender, "Operator: caller is not the operator");
         _;
     }
 
@@ -48,10 +49,12 @@ contract ArcadiumReferral is IArcadiumReferral, Ownable {
     }
 
     // Update the status of the operator
-    function updateOperator(address _operator, bool _status) external onlyOwner {
+    function updateOperator(address _operator) external onlyOwner {
         require(_operator != address(0), "operator cannot be the 0 address");
+        require(operator == address(0), "operator is already set!");
 
-        operators[_operator] = _status;
-        emit OperatorUpdated(_operator, _status);
+        operator = _operator;
+
+        emit OperatorUpdated(_operator);
     }
 }

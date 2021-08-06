@@ -17,13 +17,13 @@ contract L2TokenRedeem is Ownable, ReentrancyGuard {
 
     address public constant feeAddress = 0x3a1D1114269d7a786C154FE5278bF5b1e3e20d31;
 
-    PreMyFriends public preMyFriends;
-    address public preArcadiumAddress;
+    PreMyFriends public immutable preMyFriends;
+    address public immutable preArcadiumAddress;
 
-    address public myFriendsAddress;
-    address public arcadiumAddress;
+    address public immutable myFriendsAddress;
+    address public immutable arcadiumAddress;
 
-    L2LithSwap public l2LithSwap;
+    L2LithSwap public immutable l2LithSwap;
 
     uint256 public startBlock;
 
@@ -31,8 +31,8 @@ contract L2TokenRedeem is Ownable, ReentrancyGuard {
 
     event MyFriendsSwap(address sender, uint256 amount);
     event ArcadiumSwap(address sender, uint256 amount);
-    event retrieveUnclaimedTokens(uint256 MyFriendsAmount, uint256 Arcadiummount);
-    event startBlockChanged(uint256 newStartBlock);
+    event RetrieveUnclaimedTokens(uint256 MyFriendsAmount, uint256 Arcadiummount);
+    event StartBlockChanged(uint256 newStartBlock);
 
     constructor(uint256 _startBlock, L2LithSwap _l2LithSwap, PreMyFriends _preMyFriendsAddress, address _preArcadiumAddress, address _myFriendsAddress, address _arcadiumAddress) {
         require(block.number < _startBlock, "cannot set start block in the past!");
@@ -72,8 +72,8 @@ contract L2TokenRedeem is Ownable, ReentrancyGuard {
     }
 
     function sendUnclaimedsToFeeAddress() external onlyOwner {
-        require(block.number > l2LithSwap.endBlock(), "can only revrieve excess tokens after lith swap has ended");
-        require(block.number > preMyFriends.endBlock(), "can only revrieve excess tokens after presale has ended");
+        require(block.number > l2LithSwap.endBlock(), "can only retrieve excess tokens after lith swap has ended");
+        require(block.number > preMyFriends.endBlock(), "can only retrieve excess tokens after presale has ended");
         require(!hasRetrievedUnsoldPresale, "can only burn unsold presale once!");
 
         uint256 wastedPreMyFriendsTokend = preMyFriends.preMyFriendsRemaining() + l2LithSwap.preMyFriendsRemaining();
@@ -86,14 +86,14 @@ contract L2TokenRedeem is Ownable, ReentrancyGuard {
             "retreiving too much preArcadium, has this been setup properly?");
 
         if (wastedPreMyFriendsTokend > 0)
-            preMyFriends.transfer(feeAddress, wastedPreMyFriendsTokend);
+            ERC20(myFriendsAddress).transfer(feeAddress, wastedPreMyFriendsTokend);
 
         if (wastedPreArcadiumTokens > 0)
             ERC20(arcadiumAddress).transfer(feeAddress, wastedPreArcadiumTokens);
 
         hasRetrievedUnsoldPresale = true;
 
-        emit retrieveUnclaimedTokens(wastedPreMyFriendsTokend, wastedPreArcadiumTokens);
+        emit RetrieveUnclaimedTokens(wastedPreMyFriendsTokend, wastedPreArcadiumTokens);
     }
 
     function setStartBlock(uint256 _newStartBlock) external onlyOwner {
@@ -101,6 +101,6 @@ contract L2TokenRedeem is Ownable, ReentrancyGuard {
         require(block.number < _newStartBlock, "cannot set start block in the past");
         startBlock = _newStartBlock;
 
-        emit startBlockChanged(_newStartBlock);
+        emit StartBlockChanged(_newStartBlock);
     }
 }

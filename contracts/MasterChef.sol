@@ -22,7 +22,7 @@ import "./ArcadiumToken.sol";
 contract MasterChef is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    IERC20 public usdcRewardCurrency;
+    IERC20 public immutable usdcRewardCurrency;
 
     // Burn address
     address constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
@@ -32,22 +32,21 @@ contract MasterChef is Ownable, ReentrancyGuard {
     // Founder 2 address
     address public constant FOUNDER2_ADDRESS = 0x30139dfe2D78aFE7fb539e2F2b765d794fe52cB4;
 
-    // less for testing.
-    uint256 initialFounderMyFriendsStake = 18750 * (10 ** 18);
+    uint256 constant initialFounderMyFriendsStake = 16250 * (10 ** 18);
 
     // Must be after startBlock.
-    uint256 public founderFinalLockupEndBlock;
+    uint256 public immutable founderFinalLockupEndBlock;
 
     uint256 public totalUSDCCollected = 0;
 
     uint256 accDepositUSDCRewardPerShare = 0;
 
     // The MYFRIENDS TOKEN!
-    MyFriendsToken myFriends;
+    MyFriendsToken public myFriends;
     // The ARCADIUM TOKEN!
-    ArcadiumToken arcadium;
+    ArcadiumToken public arcadium;
     // Arcadium's trusty utility belt.
-    RHCPToolBox arcadiumToolBox;
+    RHCPToolBox public arcadiumToolBox;
 
     uint256 public arcadiumReleaseGradient;
     uint256 public endArcadiumGradientBlock;
@@ -114,22 +113,23 @@ contract MasterChef is Ownable, ReentrancyGuard {
 
     uint256 public gradientEra = 1;
 
-    uint256 public gradient2EndBlock;
-    uint256 public gradient2EndEmmissions = 768915 * (10 ** 12);
+    uint256 public immutable gradient2EndBlock;
+    uint256 public constant gradient2EndEmmissions = 692023838 * (10 ** 9);
 
     uint256 public gradient3EndBlock;
-    uint256 public gradient3EndEmmissions  = 153783 * (10 ** 13);
+    uint256 public constant gradient3EndEmmissions  = 1384047676 * (10 ** 9);
 
-    uint256 public myFriendsPID = 0;
+    uint256 public constant myFriendsPID = 0;
 
     uint256 public constant maxPools = 69;
 
-    event addPool(uint256 indexed pid, uint8 tokenType, uint256 allocPoint, address lpToken, uint256 depositFeeBP);
-    event setPool(uint256 indexed pid, uint8 tokenType, uint256 allocPoint, uint256 depositFeeBP);
+    event AddPool(uint256 indexed pid, uint8 tokenType, uint256 allocPoint, address lpToken, uint256 depositFeeBP);
+    event SetPool(uint256 indexed pid, uint256 allocPoint, uint256 depositFeeBP);
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event GradientUpdated(uint256 newEndGoalArcadiumEmmission, uint256 newEndArcadiumEmmissionBlock);
+    event SetArcadiumReferral(address arcadiumAddress);
 
     constructor(
         MyFriendsToken _myFriends,
@@ -151,7 +151,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         startBlock = _startBlock;
         usdcRewardCurrency = IERC20(_usdcCurrencyAddress);
 
-        require(_startBlock < _founderFinalLockupEndBlock, "founder MyFriends lockup block too early");
+        require(_startBlock < _founderFinalLockupEndBlock, "founder MyFriends lockup block invalid");
         founderFinalLockupEndBlock = _founderFinalLockupEndBlock;
 
         require(_startBlock < _gradient1EndBlock + 40, "gradient period 1 invalid");
@@ -159,7 +159,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         require(_gradient2EndBlock < _gradient3EndBlock + 40, "gradient period 3 invalid");
 
         require(_beginningArcadiumEmission > 0.166666 ether && _endArcadiumEmission > 0.166666 ether,
-            "ARCADIUM release must be > 0.166666 per block");
+            "arcadium emissions too big");
 
         endArcadiumGradientBlock = _gradient1EndBlock;
         endGoalArcadiumEmission = _endArcadiumEmission;
@@ -169,16 +169,10 @@ contract MasterChef is Ownable, ReentrancyGuard {
 
         require(endGoalArcadiumEmission < 101 ether, "cannot allow > than 101 ARCADIUM per block");
 
-        if (endArcadiumGradientBlock > startBlock && _beginningArcadiumEmission != endGoalArcadiumEmission) {
-            isIncreasingGradient = endGoalArcadiumEmission > _beginningArcadiumEmission;
-            if (isIncreasingGradient)
-                arcadiumReleaseGradient = ((endGoalArcadiumEmission - _beginningArcadiumEmission) * 1e24) / (endArcadiumGradientBlock - startBlock);
-            else
-                arcadiumReleaseGradient = ((_beginningArcadiumEmission - endGoalArcadiumEmission) * 1e24) / (endArcadiumGradientBlock - startBlock);
-        } else {
-            require(_beginningArcadiumEmission == endGoalArcadiumEmission, "invalid arcadium release data");
-            arcadiumReleaseGradient = 0;
-        }
+        arcadiumReleaseGradient = _arcadiumToolBox.calcEmissionGradient(
+            block.number, _beginningArcadiumEmission, endArcadiumGradientBlock, endGoalArcadiumEmission);
+
+        add(0, 100, _myFriends, 0, false);
     }
 
     function poolLength() external view returns (uint256) {
@@ -203,8 +197,12 @@ contract MasterChef is Ownable, ReentrancyGuard {
         if (_withUpdate) {
             massUpdatePools();
         }
+
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint + _allocPoint;
+
+        poolExistence[_lpToken] = true;
+
         poolInfo.push(PoolInfo({
             lpToken: _lpToken,
             allocPoint: _allocPoint,
@@ -216,17 +214,12 @@ contract MasterChef is Ownable, ReentrancyGuard {
             totalLocked: 0
         }));
 
-        // We must track the pid of myfriends token
-        if (address(_lpToken) == address(myFriends))
-            myFriendsPID = poolInfo.length - 1;
-
-        emit addPool(poolInfo.length - 1, _tokenType, _allocPoint, address(_lpToken), _depositFeeBP);
+        emit AddPool(poolInfo.length - 1, _tokenType, _allocPoint, address(_lpToken), _depositFeeBP);
     }
 
     // Update the given pool's ARCADIUM allocation point and deposit fee. Can only be called by the owner.
-    function set(uint256 _pid, uint8 _tokenType, uint256 _allocPoint, uint16 _depositFeeBP, bool _withUpdate) public onlyOwner {
+    function set(uint256 _pid, uint256 _allocPoint, uint16 _depositFeeBP, bool _withUpdate) external onlyOwner {
         require(_depositFeeBP <= 401, "bad depositBP");
-        require(_tokenType == 0 || _tokenType == 1, "invalid token type");
 
         if (_withUpdate) {
             massUpdatePools();
@@ -234,10 +227,10 @@ contract MasterChef is Ownable, ReentrancyGuard {
         totalAllocPoint = (totalAllocPoint - poolInfo[_pid].allocPoint) + _allocPoint;
         poolInfo[_pid].allocPoint = _allocPoint;
         poolInfo[_pid].depositFeeBP = _depositFeeBP;
-        poolInfo[_pid].tokenType = _tokenType;
+        //poolInfo[_pid].tokenType = _tokenType;
         //poolInfo[_pid].totalLocked = poolInfo[_pid].totalLocked;
 
-        emit setPool(_pid, _tokenType, _allocPoint, _depositFeeBP);
+        emit SetPool(_pid, _allocPoint, _depositFeeBP);
     }
 
     // View function to see pending USDCs on frontend.
@@ -254,7 +247,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         uint256 accArcadiumPerShare = pool.accArcadiumPerShare;
 
         uint256 lpSupply = pool.totalLocked;
-        if (block.number > pool.lastRewardBlock && lpSupply != 0) {
+        if (block.number > pool.lastRewardBlock && lpSupply != 0 && totalAllocPoint != 0) {
             uint256 farmingLimitedBlock = block.number <= gradient3EndBlock ? block.number : gradient3EndBlock;
             uint256 release = arcadiumToolBox.getArcadiumRelease(isIncreasingGradient, arcadiumReleaseGradient, endArcadiumGradientBlock, endGoalArcadiumEmission, pool.lastRewardBlock, farmingLimitedBlock);
             uint256 arcadiumReward = (release * pool.allocPoint) / totalAllocPoint;
@@ -275,16 +268,16 @@ contract MasterChef is Ownable, ReentrancyGuard {
             return _to - _from;
     }
 
-    // View function to see pending ARCADIUMs on frontend.
+    // View function to see pending MyFriends on frontend.
     function pendingMyFriends(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 accMyFriendsPerShare = pool.accMyFriendsPerShare;
 
         uint256 lpSupply = pool.totalLocked;
-        if (block.number > pool.lastRewardBlock && lpSupply != 0) {
+        if (block.number > pool.lastRewardBlock && lpSupply != 0 && totalAllocPoint > poolInfo[myFriendsPID].allocPoint) {
             uint256 release = getMyFriendsMultiplier(pool.lastRewardBlock, block.number);
-            uint256 myFriendsReward = (release * myFriendsPerBlock * pool.allocPoint) / totalAllocPoint;
+            uint256 myFriendsReward = (release * myFriendsPerBlock * pool.allocPoint) / (totalAllocPoint - poolInfo[myFriendsPID].allocPoint);
             accMyFriendsPerShare = accMyFriendsPerShare + ((myFriendsReward * 1e24) / lpSupply);
         }
 
@@ -294,7 +287,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
     // Update reward variables for all pools. Be careful of gas spending!
     function massUpdatePools() public {
         uint256 length = poolInfo.length;
-        // we only allow 80 pools to be upda
+        // we only allow maxPools number of pools to be updated
         for (uint256 pid = 0; pid < length && pid < maxPools; ++pid) {
             updatePool(pid);
         }
@@ -304,7 +297,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
     // to ARCADIUM and MYFRIENDS
     function skimPool(uint256 poolId) internal {
         PoolInfo storage pool = poolInfo[poolId];
-        //n Cannot skim any tokens we use for staking rewards.
+        // cannot skim any tokens we use for staking rewards.
         if (isNativeToken(address(pool.lpToken)))
             return;
 
@@ -312,14 +305,12 @@ contract MasterChef is Ownable, ReentrancyGuard {
             pool.lpToken.balanceOf(address(this)) - pool.totalLocked :
             0;
 
-        // No point skimming super small dust.
-        if (skim < ((10 ** 2) * (10 ** ERC20(address(pool.lpToken)).decimals())))
-            return;
-
-        uint256 myFriendsShare = skim / 2;
-        uint256 arcadiumShare = skim - myFriendsShare;
-        pool.lpToken.safeTransfer(address(myFriends), myFriendsShare);
-        pool.lpToken.safeTransfer(address(arcadium), arcadiumShare);
+        if (skim > 1e4) {
+            uint256 myFriendsShare = skim / 2;
+            uint256 arcadiumShare = skim - myFriendsShare;
+            pool.lpToken.safeTransfer(address(myFriends), myFriendsShare);
+            pool.lpToken.safeTransfer(address(arcadium), arcadiumShare);
+        }
     }
 
     // Updates arcadium release goal and phase change duration
@@ -329,7 +320,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
             return false;
 
         // this will be called infrequently
-        // and deployed are on a cheap gas network POLYGON (MATIC)
+        // and deployed on a cheap gas network POLYGON (MATIC)
         // Founders will also be attempting the gradient update
         // at the right time.
         massUpdatePools();
@@ -426,12 +417,12 @@ contract MasterChef is Ownable, ReentrancyGuard {
         pool.lastRewardBlock = block.number;
     }
 
-    // Return if address a founder address.
+    // Return if address is a founder address.
     function isFounder(address addr) public pure returns (bool) {
         return addr == FOUNDER1_ADDRESS || addr == FOUNDER2_ADDRESS;
     }
 
-    // Return if address a founder address.
+    // Return if address is a founder address.
     function isNativeToken(address addr) public view returns (bool) {
         return addr == address(myFriends) || addr == address(arcadium);
     }
@@ -477,7 +468,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
                    usdcRecieved  = myFriends.convertDepositFeesToUSDC(address(pool.lpToken), 1);
                 }
                 // Lp tokens get liquidated in Arcadium not MyFriends.
-                if (pool.tokenType == 0) {
+                else if (pool.tokenType == 0) {
                     pool.lpToken.safeTransfer(address(myFriends), depositFee - arcadiumDepositFee);
                     usdcRecieved = myFriends.convertDepositFeesToUSDC(address(pool.lpToken), 0);
                 }
@@ -511,9 +502,9 @@ contract MasterChef is Ownable, ReentrancyGuard {
         emit Deposit(msg.sender, _pid, _amount);
     }
 
-    // Return how much myFriends should be saked by the founders at any time.
+    // Return how much MyFriends should be saked by the founders at any time.
     function getCurrentComplsoryFounderMyFriendsDeposit(uint256 blocknum) public view returns (uint256) {
-        // No MyFriends withdrawals before farmiing
+        // No MyFriends withdrawals before farmining
         if (blocknum < startBlock)
             return type(uint256).max;
         if (blocknum > founderFinalLockupEndBlock)
@@ -629,7 +620,10 @@ contract MasterChef is Ownable, ReentrancyGuard {
     // Update the arcadium referral contract address by the owner
     function setArcadiumReferral(IArcadiumReferral _arcadiumReferral) external onlyOwner {
         require(address(_arcadiumReferral) != address(0), "arcadiumReferral cannot be the 0 address");
+        require(address(arcadiumReferral) == address(0), "arcadium referral address already set");
         arcadiumReferral = _arcadiumReferral;
+
+        emit SetArcadiumReferral(address(arcadiumReferral));
     }
 
     // Pay referral commission to the referrer who referred this user.

@@ -1,7 +1,7 @@
 pragma solidity >=0.5.0;
 pragma experimental ABIEncoderV2;
 
-import "hardhat/console.sol";
+//import "hardhat/console.sol";
 
 /// @title Multicall - Aggregate results from multiple read-only function calls
 /// @author Michael Elliot <mike@makerdao.com>
@@ -14,14 +14,14 @@ contract Multicall {
         bytes callData;
     }
     function aggregate(Call[] memory calls) public returns (uint256 blockNumber, bytes[] memory returnData) {
-        console.log("multicall is running!!!");
+        //console.log("multicall is running!!!");
         blockNumber = block.number;
         returnData = new bytes[](calls.length);
         for(uint256 i = 0; i < calls.length; i++) {
-            console.log("calling target: %s", calls[i].target);
-            console.logBytes(calls[i].callData);
+            //console.log("calling target: %s", calls[i].target);
+            //console.logBytes(calls[i].callData);
             (bool success, bytes memory ret) = calls[i].target.call(calls[i].callData);
-            console.log("op %d returned", i);
+            //console.log("op %d returned", i);
             require(success, "multicall op FAILED");
             returnData[i] = ret;
         }
